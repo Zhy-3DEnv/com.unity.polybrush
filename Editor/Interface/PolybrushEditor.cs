@@ -1,4 +1,4 @@
-﻿//#define POLYBRUSH_DEBUG
+//#define POLYBRUSH_DEBUG
 
 using UnityEngine;
 using System.Collections.Generic;
@@ -555,6 +555,23 @@ namespace UnityEditor.Polybrush
 
 			Event e = Event.current;
 
+			// Hotkeys: Ctrl+Alt+LMB to set Max Height, Ctrl+Alt+Shift+LMB to set Min Height (Raise/Lower tool only)
+			if (tool == BrushTool.RaiseLower && e.type == EventType.MouseDown && e.button == 0 && e.control && e.alt)
+			{
+				float hitWorldY;
+				if (TryGetHitWorldY(e.mousePosition, out hitWorldY))
+				{
+					BrushModeRaiseLower.s_EnableHeightClamp.value = true;
+					if (e.shift)
+						BrushModeRaiseLower.s_MinWorldHeight.value = hitWorldY;
+					else
+						BrushModeRaiseLower.s_MaxWorldHeight.value = hitWorldY;
+					PolybrushSettings.Save();
+					e.Use();
+					return;
+				}
+			}
+
             CheckForEscapeKey(e);
 
             if (Tools.current != Tool.None)
@@ -683,6 +700,41 @@ namespace UnityEditor.Polybrush
 				return k_EditorTargetFrameLow;
 
 			return k_EditorTargetFramerateHigh;
+		}
+
+		// Try hit-test current mouse position and return world-space Y value of the hit
+		bool TryGetHitWorldY(Vector2 mousePosition, out float worldY)
+		{
+			worldY = 0f;
+			Ray mouseRay = HandleUtility.GUIPointToWorldRay(mousePosition);
+			// Prefer current brushTarget if valid
+			if (Util.IsValid(brushTarget))
+			{
+				PolyRaycastHit hit;
+				if (PolySceneUtility.WorldRaycast(mouseRay, brushTarget.transform, brushTarget.editableObject.visualMesh, out hit))
+				{
+					worldY = brushTarget.transform.TransformPoint(hit.position).y;
+					return true;
+				}
+			}
+
+			// Fallback: iterate current selection and test
+			var trs = Selection.GetTransforms(SelectionMode.Unfiltered);
+			for (int i = 0; i < trs.Length; i++)
+			{
+				var go = trs[i].gameObject;
+				var target = GetOrCreateBrushTarget(go);
+				if (!Util.IsValid(target))
+					continue;
+				PolyRaycastHit hit;
+				if (PolySceneUtility.WorldRaycast(mouseRay, target.transform, target.editableObject.visualMesh, out hit))
+				{
+					worldY = target.transform.TransformPoint(hit.position).y;
+					return true;
+				}
+			}
+
+			return false;
 		}
 
         /// <summary>
