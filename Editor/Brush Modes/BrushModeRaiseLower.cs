@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System.Collections.Generic;
 using UnityEngine.Polybrush;
 using UnityEditor.SettingsManagement;
@@ -21,6 +21,9 @@ namespace UnityEditor.Polybrush
         internal new static class Styles
         {
             internal static GUIContent s_GCBrushEffect = new GUIContent("Sculpt Power", "Defines the baseline distance that vertices will be moved when a brush is applied at full strength.");
+            internal static GUIContent s_GCEnableHeightClamp = new GUIContent("Enable Height Clamp", "Clamp vertex world Y position while sculpting (editor only).");
+            internal static GUIContent s_GCMinHeight = new GUIContent("Min World Y", "Minimum world-space Y height for sculpted vertices.");
+            internal static GUIContent s_GCMaxHeight = new GUIContent("Max World Y", "Maximum world-space Y height for sculpted vertices.");
         }
         // Modifier to apply on top of strength.  Translates to brush applications per second roughly.
         const float k_StrengthModifier = .01f;
@@ -29,6 +32,12 @@ namespace UnityEditor.Polybrush
         internal static Pref<float> s_RaiseLowerStrength = new Pref<float>("RaiseLowerBrush.Strength", 5f, SettingsScope.Project);
         [UserSetting]
         internal static Pref<PolyDirection> s_RaiseLowerDirection = new Pref<PolyDirection>("RaiseLowerBrush.Direction", PolyDirection.BrushNormal, SettingsScope.Project);
+        [UserSetting]
+        internal static Pref<bool> s_EnableHeightClamp = new Pref<bool>("RaiseLowerBrush.EnableHeightClamp", false, SettingsScope.Project);
+        [UserSetting]
+        internal static Pref<float> s_MinWorldHeight = new Pref<float>("RaiseLowerBrush.MinWorldHeight", 0f, SettingsScope.Project);
+        [UserSetting]
+        internal static Pref<float> s_MaxWorldHeight = new Pref<float>("RaiseLowerBrush.MaxWorldHeight", 100f, SettingsScope.Project);
         /// <summary>
         /// If true vertices on the edge of a mesh will not be affected by brush strokes. It is up to inheriting
         /// classes to implement this preference (use `nonManifoldIndices` HashSet to check if a vertex index is
@@ -59,6 +68,22 @@ namespace UnityEditor.Polybrush
                 (int)s_RaiseLowerDirection.value, BrushModeSculpt.Styles.s_BrushDirectionList);
 
             s_RaiseLowerStrength.value = PolyGUILayout.FloatField(Styles.s_GCBrushEffect, s_RaiseLowerStrength);
+
+            // Height clamp UI (editor-only)
+            s_EnableHeightClamp.value = PolyGUILayout.Toggle(Styles.s_GCEnableHeightClamp, s_EnableHeightClamp);
+            if (s_EnableHeightClamp)
+            {
+                s_MinWorldHeight.value = PolyGUILayout.FloatField(Styles.s_GCMinHeight, s_MinWorldHeight);
+                s_MaxWorldHeight.value = PolyGUILayout.FloatField(Styles.s_GCMaxHeight, s_MaxWorldHeight);
+
+                // ensure min <= max
+                if (s_MinWorldHeight.value > s_MaxWorldHeight.value)
+                {
+                    float temp = s_MinWorldHeight.value;
+                    s_MinWorldHeight.value = s_MaxWorldHeight.value;
+                    s_MaxWorldHeight.value = temp;
+                }
+            }
 
             if (EditorGUI.EndChangeCheck())
                 PolybrushSettings.Save();
@@ -150,6 +175,14 @@ namespace UnityEditor.Polybrush
 					}
 
 					Vector3 pos = data.Vertices[index] + n * (hit.weights[index] * maxMoveDistance * scale);
+
+					// Optional: clamp world-space height (Y) and convert back to local
+					if (s_EnableHeightClamp)
+					{
+						Vector3 worldPos = target.transform.TransformPoint(pos);
+						worldPos.y = Mathf.Clamp(worldPos.y, s_MinWorldHeight, s_MaxWorldHeight);
+						pos = target.transform.InverseTransformPoint(worldPos);
+					}
 
 					int[] indices = data.CommonVertices[i];
 
